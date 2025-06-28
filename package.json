@@ -2,7 +2,6 @@
   "name": "api",
   "version": "1.0.0",
   "main": "index.js",
-  
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "tsc": "tsc",
@@ -23,7 +22,6 @@
     "multer": "^2.0.1",
     "mysql": "^2.18.1",
     "mysql2": "^3.14.1",
-    "mysql2-promise": "^0.1.4",
     "nodemailer": "^6.9.16",
     "path": "^0.12.7",
     "sequelize": "^6.37.4",
