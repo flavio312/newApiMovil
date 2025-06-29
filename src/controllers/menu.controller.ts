@@ -19,6 +19,38 @@ export const getMenu = async (req: Request, res: Response): Promise<any> => {
     }
 };
 
+export const getMenuById = async (req: Request, res: Response): Promise<any> => {
+    const { id_Menu } = req.params;
+
+    console.log("=== OBTENER MENÚ POR ID ===");
+    console.log("ID:", id_Menu);
+
+    try {
+        const menu = await Menu.findByPk(id_Menu);
+        
+        if (!menu) {
+            return res.status(404).json({
+                message: 'Menú no encontrado'
+            });
+        }
+
+        res.status(200).json({
+            message: 'Menú obtenido correctamente',
+            data: menu
+        });
+
+        console.log("✅ Menú encontrado!");
+        console.log("====================");
+
+    } catch (error) {
+        console.error("❌ Error al obtener menú por ID:", error);
+        res.status(500).json({
+            message: "Error al obtener menú por ID",
+            error: process.env.NODE_ENV === 'development' ? error?.message : undefined
+        });
+    }
+};
+
 // Crear nuevo menú
 export const createMenu = async (req: Request, res: Response): Promise<any> => {
     const { titulo, ingredientes, preparacion } = req.body;

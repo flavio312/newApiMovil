@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { createMenu, deleteMenu, getMenu, updateMenu } from "../controllers/menu.controller";
+import { createMenu, deleteMenu, getMenu, getMenuById, updateMenu } from "../controllers/menu.controller";
 
 const router = express.Router();
 
@@ -41,6 +41,7 @@ const upload = multer({
 });
 
 // Rutas
+router.get("/menu/:id_Menu", getMenuById);
 router.get("/menu", getMenu);
 router.post("/plato", upload.single('imagen'), createMenu);
 router.delete("/plato/:id_Menu", deleteMenu);
