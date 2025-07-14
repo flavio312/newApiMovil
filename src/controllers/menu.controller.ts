@@ -30,22 +30,22 @@ export const getMenuById = async (req: Request, res: Response): Promise<any> => 
         
         if (!menu) {
             return res.status(404).json({
-                message: 'Menú no encontrado'
+                message: 'Plato no encontrado'
             });
         }
 
         res.status(200).json({
-            message: 'Menú obtenido correctamente',
+            message: 'Plato obtenido correctamente',
             data: menu
         });
 
-        console.log("✅ Menú encontrado!");
+        console.log("✅ Plato encontrado!");
         console.log("====================");
 
     } catch (error) {
-        console.error("❌ Error al obtener menú por ID:", error);
+        console.error("❌ Error al obtener el plato por ID:", error);
         res.status(500).json({
-            message: "Error al obtener menú por ID",
+            message: "Error al obtener plato por ID",
             error: process.env.NODE_ENV === 'development' ? error?.message : undefined
         });
     }

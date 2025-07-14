@@ -28,7 +28,7 @@ Menu.init({
         allowNull: false,
     },
     imagen: {
-        type: DataTypes.TEXT, // Para almacenar la URL de Google Drive
+        type: DataTypes.TEXT,
         allowNull: true,
     }
 }, {
