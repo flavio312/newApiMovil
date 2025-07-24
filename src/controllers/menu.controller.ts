@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { cloudinaryService } from '../services/cloudinary.service';
+import { firebaseService } from '../services/firebase.service'; // ← NUEVO IMPORT
 import Platillo from '../models/menu.models';
 import { 
   MulterRequest, 
@@ -74,6 +75,16 @@ export class MenuController {
 
       console.log('✓ Platillo creado exitosamente en la base de datos');
 
+      // ← NUEVO: Enviar push notification de nuevo platillo
+      try {
+        console.log('📱 Enviando push notifications...');
+        await firebaseService.sendProductAddedNotification(nuevoPlatillo);
+        console.log('✓ Push notifications enviadas exitosamente');
+      } catch (notificationError) {
+        console.warn('⚠️ Error enviando push notifications (no crítico):', notificationError);
+        // No fallar la creación del platillo si falla la notificación
+      }
+
       // Respuesta exitosa
       res.status(201).json({
         success: true,
@@ -116,76 +127,68 @@ export class MenuController {
   }
 
   /**
-   * Obtener todos los platillos
+   * Crear platillo sin imagen (para app móvil offline)
    */
-  async obtenerPlatillos(req: MulterRequest, res: Response<ApiResponse<PlatilloType[]>>): Promise<void> {
+  async crearPlatilloSinImagen(req: MulterRequest, res: Response<ApiResponse<PlatilloType>>): Promise<void> {
     try {
-      const platillos = await Platillo.findAll({
-        order: [['created_at', 'DESC']],
-        attributes: [
-          'id', 
-          'titulo', 
-          'ingredientes', 
-          'preparacion', 
-          'imagen_url', 
-          'imagen_public_id', 
-          'created_at'
-        ]
-      });
+      console.log('=== CREAR MENÚ SIN IMAGEN ===');
+      console.log('Datos recibidos:', req.body);
 
-      res.json({
-        success: true,
-        message: 'Platillos obtenidos exitosamente',
-        data: platillos
-      });
+      // Extraer y validar datos del formulario
+      const { titulo, ingredientes, preparacion }: PlatilloCreateRequest = req.body;
 
-    } catch (error) {
-      console.error('❌ Error obteniendo platillos:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error obteniendo platillos'
-      });
-    }
-  }
-
-  /**
-   * Obtener un platillo por ID
-   */
-  async obtenerPlatilloPorId(req: MulterRequest, res: Response<ApiResponse<PlatilloType>>): Promise<void> {
-    try {
-      const { id } = req.params;
-
-      const platillo = await Platillo.findByPk(id, {
-        attributes: [
-          'id', 
-          'titulo', 
-          'ingredientes', 
-          'preparacion', 
-          'imagen_url', 
-          'imagen_public_id', 
-          'created_at'
-        ]
-      });
-
-      if (!platillo) {
-        res.status(404).json({
+      // Validar campos requeridos
+      if (!titulo || !ingredientes || !preparacion) {
+        res.status(400).json({
           success: false,
-          message: 'Platillo no encontrado'
+          message: 'Faltan campos requeridos: titulo, ingredientes, preparacion'
         });
         return;
       }
 
-      res.json({
+      // Crear platillo en base de datos sin imagen
+      const nuevoPlatillo = await Platillo.create({
+        titulo,
+        ingredientes,
+        preparacion,
+        imagen_url: null,
+        imagen_public_id: null
+      });
+
+      console.log('✓ Platillo sin imagen creado exitosamente en la base de datos');
+
+      // ← NUEVO: Enviar push notification
+      try {
+        console.log('📱 Enviando push notifications...');
+        await firebaseService.sendProductAddedNotification(nuevoPlatillo);
+        console.log('✓ Push notifications enviadas exitosamente');
+      } catch (notificationError) {
+        console.warn('⚠️ Error enviando push notifications (no crítico):', notificationError);
+      }
+
+      // Respuesta exitosa
+      res.status(201).json({
         success: true,
-        message: 'Platillo obtenido exitosamente',
-        data: platillo
+        message: 'Platillo creado exitosamente',
+        data: nuevoPlatillo
       });
 
     } catch (error) {
-      console.error('❌ Error obteniendo platillo:', error);
+      console.error('❌ Error al crear platillo sin imagen:', error);
+      
+      if (error instanceof ValidationError) {
+        res.status(400).json({
+          success: false,
+          message: 'Error de validación',
+          error: error.errors.map(err => err.message).join(', ')
+        });
+        return;
+      }
+      
       res.status(500).json({
         success: false,
-        message: 'Error obteniendo platillo'
+        message: 'Error interno del servidor',
+        error: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
       });
     }
   }
@@ -193,7 +196,7 @@ export class MenuController {
   /**
    * Actualizar un platillo
    */
-  async actualizarPlatillo(req: MulterRequest, res: Response<ApiResponse>): Promise<void> {
+  async actualizarPlatillo(req: MulterRequest, res: Response<ApiResponse<PlatilloType>>): Promise<void> {
     try {
       const { id } = req.params;
       const { titulo, ingredientes, preparacion }: PlatilloUpdateRequest = req.body;
@@ -239,13 +242,24 @@ export class MenuController {
       }
 
       // Actualizar usando Sequelize
-      await platilloExistente.update(updateData);
+      const platilloActualizado = await platilloExistente.update(updateData);
 
       console.log('✓ Platillo actualizado exitosamente');
 
+      // ← NUEVO: Enviar push notification de actualización
+      try {
+        console.log('📱 Enviando push notifications de actualización...');
+        await firebaseService.sendProductUpdatedNotification(platilloActualizado);
+        console.log('✓ Push notifications de actualización enviadas exitosamente');
+      } catch (notificationError) {
+        console.warn('⚠️ Error enviando push notifications (no crítico):', notificationError);
+      }
+
+      // Respuesta exitosa con el platillo actualizado
       res.json({
         success: true,
-        message: 'Platillo actualizado exitosamente'
+        message: 'Platillo actualizado exitosamente',
+        data: platilloActualizado
       });
 
     } catch (error) {
@@ -263,6 +277,147 @@ export class MenuController {
       res.status(500).json({
         success: false,
         message: 'Error actualizando platillo'
+      });
+    }
+  }
+
+  /**
+   * Actualizar platillo sin imagen (para app móvil)
+   */
+  async actualizarPlatilloSinImagen(req: MulterRequest, res: Response<ApiResponse<PlatilloType>>): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { titulo, ingredientes, preparacion }: PlatilloUpdateRequest = req.body;
+
+      // Buscar el platillo existente
+      const platilloExistente = await Platillo.findByPk(id);
+
+      if (!platilloExistente) {
+        res.status(404).json({
+          success: false,
+          message: 'Platillo no encontrado'
+        });
+        return;
+      }
+
+      // Actualizar campos
+      const updateData = {
+        titulo: titulo || platilloExistente.titulo,
+        ingredientes: ingredientes || platilloExistente.ingredientes,
+        preparacion: preparacion || platilloExistente.preparacion
+      };
+
+      const platilloActualizado = await platilloExistente.update(updateData);
+
+      console.log('✓ Platillo actualizado sin imagen exitosamente');
+
+      // ← NUEVO: Enviar push notification
+      try {
+        await firebaseService.sendProductUpdatedNotification(platilloActualizado);
+      } catch (notificationError) {
+        console.warn('⚠️ Error enviando push notifications:', notificationError);
+      }
+
+      res.json({
+        success: true,
+        message: 'Platillo actualizado exitosamente',
+        data: platilloActualizado
+      });
+
+    } catch (error) {
+      console.error('❌ Error actualizando platillo sin imagen:', error);
+      
+      if (error instanceof ValidationError) {
+        res.status(400).json({
+          success: false,
+          message: 'Error de validación',
+          error: error.errors.map(err => err.message).join(', ')
+        });
+        return;
+      }
+      
+      res.status(500).json({
+        success: false,
+        message: 'Error actualizando platillo'
+      });
+    }
+  }
+
+  // ← RESTO DE MÉTODOS MANTIENEN SU IMPLEMENTACIÓN ORIGINAL
+
+  /**
+   * Obtener todos los platillos
+   */
+  async obtenerPlatillos(req: MulterRequest, res: Response<ApiResponse<PlatilloType[]>>): Promise<void> {
+    try {
+      const platillos = await Platillo.findAll({
+        order: [['created_at', 'DESC']],
+        attributes: [
+          'id', 
+          'titulo', 
+          'ingredientes', 
+          'preparacion', 
+          'imagen_url', 
+          'imagen_public_id', 
+          'created_at',
+          'updated_at'
+        ]
+      });
+
+      res.json({
+        success: true,
+        message: 'Platillos obtenidos exitosamente',
+        data: platillos
+      });
+
+    } catch (error) {
+      console.error('❌ Error obteniendo platillos:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error obteniendo platillos'
+      });
+    }
+  }
+
+  /**
+   * Obtener un platillo por ID
+   */
+  async obtenerPlatilloPorId(req: MulterRequest, res: Response<ApiResponse<PlatilloType>>): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      const platillo = await Platillo.findByPk(id, {
+        attributes: [
+          'id', 
+          'titulo', 
+          'ingredientes', 
+          'preparacion', 
+          'imagen_url', 
+          'imagen_public_id', 
+          'created_at',
+          'updated_at'
+        ]
+      });
+
+      if (!platillo) {
+        res.status(404).json({
+          success: false,
+          message: 'Platillo no encontrado'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Platillo obtenido exitosamente',
+        data: platillo
+      });
+
+    } catch (error) {
+      console.error('❌ Error obteniendo platillo:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error obteniendo platillo'
       });
     }
   }
@@ -338,7 +493,8 @@ export class MenuController {
           'preparacion', 
           'imagen_url', 
           'imagen_public_id', 
-          'created_at'
+          'created_at',
+          'updated_at'
         ]
       });
 
