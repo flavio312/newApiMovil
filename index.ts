@@ -23,15 +23,17 @@ try {
 
 app.use(cors());
 app.use(express.json());
-app.use('/api', router, loginRouter, foodRouter,notificationRouter);
+app.use('/api', router, foodRouter,notificationRouter);
+app.use('/auth', loginRouter);
 
 (async () => {
     try {
         await sequelize.sync({alter:true});
         console.log('Conexión a la base de datos exitosa');
         // Ruta de prueba para verificar que el servidor funciona
-        app.get('/health', (req, res) => {
+        app.get('/', (req, res) => {
         res.json({ 
+            message: 'Api version 1.1.2',
             status: 'OK', 
             timestamp: new Date().toISOString(),
             firebase: firebaseService ? 'initialized' : 'not initialized'
