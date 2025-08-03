@@ -21,8 +21,7 @@ const sequelize = new Sequelize({
     timestamps: true,
     underscored: true,
     freezeTableName: true
-  },
-  timezone: '-06:00', // Ajustar según tu zona horaria
+  }
 });
 
 // Función para probar la conexión

@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "build:production": "tsc --build --verbose",
+    "build:memory-limited": "node --max-old-space-size=1024 ./node_modules/.bin/tsc",
+    "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "tsc": "tsc",
+    "build": "tsc",
     "dev": "ts-node-dev index.ts"
   },
   "keywords": [],
@@ -20,7 +23,7 @@
     "express": "^5.1.0",
     "firebase-admin": "^12.7.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.1",
+    "multer": "^2.0.2",
     "mysql": "^2.18.1",
     "mysql2": "^3.14.1",
     "nodemailer": "^6.9.16",
@@ -37,6 +40,7 @@
     "@types/node": "^22.9.0",
     "nodemon": "^3.1.7",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "brace-expansion": ">=1.1.12"
   }
 }

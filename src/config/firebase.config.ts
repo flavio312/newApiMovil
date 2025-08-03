@@ -1,8 +1,6 @@
-/**
- * Validador y helper para configuración de Firebase
- */
 import dotenv from 'dotenv';
 dotenv.config();
+
 export interface FirebaseConfig {
   projectId: string;
   clientEmail: string;
@@ -10,10 +8,7 @@ export interface FirebaseConfig {
 }
 
 export class FirebaseConfigValidator {
-  
-  /**
-   * Validar que todas las variables de Firebase estén presentes
-   */
+
   static validateEnvironmentVariables(): FirebaseConfig {
     const projectId = process.env.FIREBASE_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
@@ -21,14 +16,13 @@ export class FirebaseConfigValidator {
 
     const errors: string[] = [];
 
+    // FIX: Agregar validaciones que faltaban
     if (!projectId) {
       errors.push('FIREBASE_PROJECT_ID is required');
     }
-
     if (!clientEmail) {
       errors.push('FIREBASE_CLIENT_EMAIL is required');
     }
-
     if (!privateKey) {
       errors.push('FIREBASE_PRIVATE_KEY is required');
     }
@@ -37,7 +31,7 @@ export class FirebaseConfigValidator {
       throw new Error(`Firebase configuration error:\n${errors.join('\n')}`);
     }
 
-    // Validaciones adicionales
+    // Validaciones adicionales solo si las variables existen
     this.validateProjectId(projectId!);
     this.validateClientEmail(clientEmail!);
     this.validatePrivateKey(privateKey!);
@@ -45,13 +39,10 @@ export class FirebaseConfigValidator {
     return {
       projectId: projectId!,
       clientEmail: clientEmail!,
-      privateKey: privateKey!
+      privateKey: this.processPrivateKey(privateKey!) // Procesar aquí
     };
   }
 
-  /**
-   * Validar formato del Project ID
-   */
   private static validateProjectId(projectId: string): void {
     if (projectId.length < 6 || projectId.length > 30) {
       throw new Error('FIREBASE_PROJECT_ID debe tener entre 6 y 30 caracteres');
@@ -66,9 +57,6 @@ export class FirebaseConfigValidator {
     }
   }
 
-  /**
-   * Validar formato del email del service account
-   */
   private static validateClientEmail(clientEmail: string): void {
     const emailRegex = /^firebase-adminsdk-[a-z0-9]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$/;
     
@@ -77,32 +65,55 @@ export class FirebaseConfigValidator {
     }
   }
 
-  /**
-   * Validar formato de la clave privada
-   */
   private static validatePrivateKey(privateKey: string): void {
-    if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+    // Procesar la clave antes de validar
+    const processedKey = this.processPrivateKey(privateKey);
+    
+    if (!processedKey.includes('-----BEGIN PRIVATE KEY-----')) {
       throw new Error('FIREBASE_PRIVATE_KEY debe empezar con "-----BEGIN PRIVATE KEY-----"');
     }
 
-    if (!privateKey.includes('-----END PRIVATE KEY-----')) {
+    if (!processedKey.includes('-----END PRIVATE KEY-----')) {
       throw new Error('FIREBASE_PRIVATE_KEY debe terminar con "-----END PRIVATE KEY-----"');
     }
 
     // Verificar que tenga el formato básico correcto
-    const cleanKey = privateKey.replace(/\\n/g, '\n');
-    const lines = cleanKey.split('\n');
+    const lines = processedKey.split('\n');
     
     if (lines.length < 3) {
       throw new Error('FIREBASE_PRIVATE_KEY parece estar mal formateada');
+    }
+
+    // Validar que no tenga caracteres extraños
+    const keyContent = lines.slice(1, -1).join('');
+    if (!/^[A-Za-z0-9+/=]+$/.test(keyContent)) {
+      throw new Error('FIREBASE_PRIVATE_KEY contiene caracteres inválidos en el contenido base64');
     }
   }
 
   /**
    * Procesar la clave privada para uso con Firebase
+   * Maneja diferentes formatos de escape de \n
    */
   static processPrivateKey(privateKey: string): string {
-    return privateKey.replace(/\\n/g, '\n');
+    let processed = privateKey;
+    
+    // Remover comillas externas si existen
+    if (processed.startsWith('"') && processed.endsWith('"')) {
+      processed = processed.slice(1, -1);
+    }
+    if (processed.startsWith("'") && processed.endsWith("'")) {
+      processed = processed.slice(1, -1);
+    }
+    
+    // Reemplazar \n escapado con saltos de línea reales
+    processed = processed.replace(/\\n/g, '\n');
+    
+    // Asegurar espacios en BEGIN/END
+    processed = processed.replace('-----BEGINPRIVATEKEY-----', '-----BEGIN PRIVATE KEY-----');
+    processed = processed.replace('-----ENDPRIVATEKEY-----', '-----END PRIVATE KEY-----');
+    
+    return processed;
   }
 
   /**
@@ -115,41 +126,34 @@ export class FirebaseConfigValidator {
     console.log(`  🔑 Private Key: ${config.privateKey.substring(0, 50)}... (${config.privateKey.length} caracteres)`);
   }
 
-  /**
-   * Verificar si estamos en entorno de producción
-   */
   static isProduction(): boolean {
     return process.env.NODE_ENV === 'production';
   }
 
-  /**
-   * Obtener configuración completa y validada
-   */
   static getValidatedConfig(): FirebaseConfig {
     console.log('🔧 Validando configuración de Firebase...');
     
-    const config = this.validateEnvironmentVariables();
-    
-    if (this.isProduction()) {
-      console.log('🌐 Entorno de producción detectado');
-    } else {
-      console.log('🛠️ Entorno de desarrollo detectado');
+    try {
+      const config = this.validateEnvironmentVariables();
+      
+      if (this.isProduction()) {
+        console.log('🌐 Entorno de producción detectado');
+      } else {
+        console.log('🛠️ Entorno de desarrollo detectado');
+      }
+      
+      this.displayConfigInfo(config);
+      
+      return config;
+    } catch (error) {
+      console.error('❌ Error en configuración de Firebase:', error);
+      throw error;
     }
-    
-    this.displayConfigInfo(config);
-    
-    return config;
   }
 }
 
-/**
- * Helper para debugging de configuración
- */
 export class FirebaseDebugHelper {
-  
-  /**
-   * Verificar si las variables están definidas (sin mostrar valores)
-   */
+
   static checkEnvironmentVariables(): void {
     const variables = [
       'FIREBASE_PROJECT_ID',
@@ -163,6 +167,13 @@ export class FirebaseDebugHelper {
       const value = process.env[varName];
       if (value) {
         console.log(`  ✅ ${varName}: Definida (${value.length} caracteres)`);
+        
+        // Debug adicional para la clave privada
+        if (varName === 'FIREBASE_PRIVATE_KEY') {
+          console.log(`    🔍 Primeros 50 chars: ${value.substring(0, 50)}`);
+          console.log(`    🔍 Contiene BEGIN: ${value.includes('-----BEGIN PRIVATE KEY-----')}`);
+          console.log(`    🔍 Contiene END: ${value.includes('-----END PRIVATE KEY-----')}`);
+        }
       } else {
         console.log(`  ❌ ${varName}: NO DEFINIDA`);
       }
@@ -170,13 +181,19 @@ export class FirebaseDebugHelper {
   }
 
   /**
-   * Mostrar ejemplo de configuración
+   * Crear archivo temporal para debug de la clave privada
    */
-  static showConfigurationExample(): void {
-    console.log('\n📝 Ejemplo de configuración en .env:');
-    console.log('FIREBASE_PROJECT_ID=mi-app-restaurante-12345');
-    console.log('FIREBASE_CLIENT_EMAIL=firebase-adminsdk-abc123@mi-app-restaurante-12345.iam.gserviceaccount.com');
-    console.log('FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\nMIIEvQIBA...\\n-----END PRIVATE KEY-----\\n"');
-    console.log('\n💡 Recuerda: Los \\n deben ser literales, no saltos de línea reales');
+  static debugPrivateKey(): void {
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    if (!privateKey) {
+      console.log('❌ FIREBASE_PRIVATE_KEY no está definida');
+      return;
+    }
+
+    const processed = FirebaseConfigValidator.processPrivateKey(privateKey);
+    console.log('🔍 Clave privada procesada:');
+    console.log('---START---');
+    console.log(processed);
+    console.log('---END---');
   }
 }
