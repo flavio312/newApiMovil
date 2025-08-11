@@ -58,17 +58,27 @@ DB_NAME=restaurante_db
 
 # Servidor
 PORT=3000
-NODE_ENV=development
+NODE_ENV=development or production
 
 # Cloudinary (obtener en https://cloudinary.com)
 CLOUDINARY_CLOUD_NAME=tu-cloud-name
 CLOUDINARY_API_KEY=tu-api-key
 CLOUDINARY_API_SECRET=tu-api-secret
+
+# Firebase (obtener en https://console.firebase.google.com)
+FIREBASE_PROJECT_ID = your-firebase-project-id
+FIREBASE_CLIENT_EMAIL =  your-firebase-client-email
+FIREBASE_PRIVATE_KEY =  your-firebase-private-key
+FIREBASE_SENDER_ID =  your-firebase-sender-id
+FIREBASE_SECRET_KEY = your-firebase-secret-key
 ```
 
 ### 4. Configurar base de datos
 ```sql
 CREATE DATABASE restaurante_db;
+CREATE USER 'username'@'%' IDENTIFIED BY 'password';
+GRANT ALL PRIVILEGES ON *.* TO 'username'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
 ```
 
 ### 5. Ejecutar el servidor
@@ -234,6 +244,11 @@ CLOUDINARY_CLOUD_NAME=tu-cloud-name
 CLOUDINARY_API_KEY=tu-api-key
 CLOUDINARY_API_SECRET=tu-api-secret
 PORT=3000
+FIREBASE_PROJECT_ID = your-firebase-project-id
+FIREBASE_CLIENT_EMAIL =  your-firebase-client-email
+FIREBASE_PRIVATE_KEY =  your-firebase-private-key
+FIREBASE_SENDER_ID =  your-firebase-sender-id
+FIREBASE_SECRET_KEY = your-firebase-secret-key
 ```
 
 ### Compilar para producción
