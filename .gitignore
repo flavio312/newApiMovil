@@ -1,8 +1,7 @@
-
+dist
+dist.zip
 node_modules
 
-src/credentials/
+.env
 
-src/temp/
-
-.env    
+firebase-adminsdk.json

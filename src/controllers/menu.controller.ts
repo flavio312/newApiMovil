@@ -1,280 +1,518 @@
-import { Request, Response } from 'express';
-import Menu from '../models/menu.models';
-import googleDriveService from '../config/googleDrive';
-import fs from 'fs';
+import { Response } from 'express';
+import { cloudinaryService } from '../services/cloudinary.service';
+import { firebaseService } from '../services/firebase.service'; // ← NUEVO IMPORT
+import Platillo from '../models/menu.models';
+import { 
+  MulterRequest, 
+  ApiResponse, 
+  PlatilloResponse, 
+  Platillo as PlatilloType,
+  PlatilloCreateRequest,
+  PlatilloUpdateRequest 
+} from '../types';
+import { ValidationError, DatabaseError } from 'sequelize';
 
-// Obtener todos los menús
-export const getMenu = async (req: Request, res: Response): Promise<any> => {
+export class MenuController {
+  
+  /**
+   * Crear un nuevo platillo
+   */
+  async crearPlatillo(req: MulterRequest, res: Response<ApiResponse<PlatilloResponse>>): Promise<void> {
     try {
-        const menus = await Menu.findAll();
-        res.status(200).json({
-            message: 'Menús obtenidos correctamente',
-            data: menus
+      console.log('=== CREAR MENÚ ===');
+      console.log('Datos recibidos:', req.body);
+      
+      // Validar que se recibió un archivo
+      if (!req.file) {
+        res.status(400).json({
+          success: false,
+          message: 'No se recibió ninguna imagen'
         });
-    } catch (error) {
-        console.error("Error al obtener menús:", error);
-        res.status(500).json({
-            message: "Error al obtener menús"
+        return;
+      }
+
+      console.log(`Archivo recibido: ${req.file.originalname} (${req.file.size} bytes)`);
+
+      // Extraer y validar datos del formulario
+      const { titulo, ingredientes, preparacion }: PlatilloCreateRequest = req.body;
+
+      // Validar campos requeridos
+      if (!titulo || !ingredientes || !preparacion) {
+        res.status(400).json({
+          success: false,
+          message: 'Faltan campos requeridos: titulo, ingredientes, preparacion'
         });
-    }
-};
+        return;
+      }
 
-export const getMenuById = async (req: Request, res: Response): Promise<any> => {
-    const { id_Menu } = req.params;
-
-    console.log("=== OBTENER MENÚ POR ID ===");
-    console.log("ID:", id_Menu);
-
-    try {
-        const menu = await Menu.findByPk(id_Menu);
-        
-        if (!menu) {
-            return res.status(404).json({
-                message: 'Plato no encontrado'
-            });
+      // Subir imagen a Cloudinary
+      console.log('📤 Subiendo imagen a Cloudinary...');
+      
+      const imageResult = await cloudinaryService.uploadImage(
+        req.file.buffer,
+        req.file.originalname,
+        {
+          folder: 'menu-restaurante',
+          tags: ['menu', 'platillo', titulo.toLowerCase().replace(/\s+/g, '-')],
+          transformation: [
+            { width: 800, height: 600, crop: 'fill' },
+            { quality: 'auto' },
+            { fetch_format: 'auto' }
+          ]
         }
+      );
 
-        res.status(200).json({
-            message: 'Plato obtenido correctamente',
-            data: menu
-        });
+      console.log('✓ Imagen subida exitosamente:', imageResult.url);
 
-        console.log("✅ Plato encontrado!");
-        console.log("====================");
+      // Crear platillo en base de datos usando Sequelize
+      const nuevoPlatillo = await Platillo.create({
+        titulo,
+        ingredientes,
+        preparacion,
+        imagen_url: imageResult.url,
+        imagen_public_id: imageResult.publicId
+      });
 
-    } catch (error) {
-        console.error("❌ Error al obtener el plato por ID:", error);
-        res.status(500).json({
-            message: "Error al obtener plato por ID",
-            error: process.env.NODE_ENV === 'development' ? error?.message : undefined
-        });
-    }
-};
+      console.log('✓ Platillo creado exitosamente en la base de datos');
 
-// Crear nuevo menú
-export const createMenu = async (req: Request, res: Response): Promise<any> => {
-    const { titulo, ingredientes, preparacion } = req.body;
-    const file = req.file;
+      // ← NUEVO: Enviar push notification de nuevo platillo
+      try {
+        console.log('📱 Enviando push notifications...');
+        await firebaseService.sendProductAddedNotification(nuevoPlatillo);
+        console.log('✓ Push notifications enviadas exitosamente');
+      } catch (notificationError) {
+        console.warn('⚠️ Error enviando push notifications (no crítico):', notificationError);
+        // No fallar la creación del platillo si falla la notificación
+      }
 
-    console.log("=== CREAR MENÚ ===");
-    console.log("Datos recibidos:", req.body);
-    console.log("Archivo recibido:", file ? `${file.originalname} (${file.size} bytes)` : 'Sin archivo');
-
-    // Validaciones
-    if (!titulo || typeof titulo !== "string") {
-        return res.status(400).json({ 
-            message: "El campo 'titulo' es obligatorio y debe ser texto válido." 
-        });
-    }
-
-    if (!ingredientes || typeof ingredientes !== "string") {
-        return res.status(400).json({ 
-            message: "El campo 'ingredientes' es obligatorio y debe ser texto válido." 
-        });
-    }
-
-    if (!preparacion || typeof preparacion !== "string") {
-        return res.status(400).json({ 
-            message: "El campo 'preparacion' es obligatorio y debe ser texto válido." 
-        });
-    }
-
-    const cleanPreparacion = preparacion.trim();
-    let imageUrl: string | null = null;
-
-    try {
-        // Si hay archivo, subirlo a Google Drive
-        if (file) {
-            console.log("📤 Subiendo imagen a Google Drive...");
-            
-            imageUrl = await googleDriveService.uploadFile(
-                file.path,
-                `menu_${Date.now()}_${file.originalname}`,
-                file.mimetype
-            );
-
-            // Eliminar archivo temporal
-            fs.unlinkSync(file.path);
-            console.log("🗑️ Archivo temporal eliminado");
+      // Respuesta exitosa
+      res.status(201).json({
+        success: true,
+        message: 'Platillo creado exitosamente',
+        data: {
+          id: nuevoPlatillo.id,
+          titulo: nuevoPlatillo.titulo,
+          ingredientes: nuevoPlatillo.ingredientes,
+          preparacion: nuevoPlatillo.preparacion,
+          imagen: {
+            url: imageResult.url,
+            publicId: imageResult.publicId,
+            width: imageResult.width,
+            height: imageResult.height,
+            format: imageResult.format,
+            size: imageResult.bytes
+          }
         }
-
-        // Crear el menú en la base de datos
-        const newMenu = await Menu.create({
-            titulo,
-            ingredientes,
-            preparacion: cleanPreparacion,
-            imagen: imageUrl
-        });
-
-        const responseData = {
-            action: "create",
-            id: newMenu.id_Menu,
-            titulo,
-            ingredientes,
-            preparacion: cleanPreparacion,
-            imagen: imageUrl
-        };
-
-        res.status(201).json({
-            message: 'Plato agregado correctamente',
-            data: responseData
-        });
-
-        console.log("✅ Plato creado con éxito!");
-        console.log("==================");
+      });
 
     } catch (error) {
-        console.error("❌ Error al crear un platillo:", error);
-        
-        // Limpiar archivo temporal si existe
-        if (file && fs.existsSync(file.path)) {
-            fs.unlinkSync(file.path);
-        }
-
-        res.status(500).json({
-            message: "Error al crear un platillo",
-            error: process.env.NODE_ENV === 'development' ? error?.message : undefined
+      console.error('❌ Error al crear platillo:', error);
+      
+      // Manejar errores de validación de Sequelize
+      if (error instanceof ValidationError) {
+        res.status(400).json({
+          success: false,
+          message: 'Error de validación',
+          error: error.errors.map(err => err.message).join(', ')
         });
+        return;
+      }
+      
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+        error: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
+      });
     }
-};
+  }
 
-// Actualizar menú
-export const updateMenu = async (req: Request, res: Response): Promise<any> => {
-    const { id_Menu } = req.params;
-    const { titulo, ingredientes, preparacion } = req.body;
-    const file = req.file;
-
-    console.log("=== ACTUALIZAR MENÚ ===");
-    console.log("ID:", id_Menu);
-    console.log("Datos:", req.body);
-    console.log("Archivo:", file ? file.originalname : 'Sin archivo');
-
+  /**
+   * Crear platillo sin imagen (para app móvil offline)
+   */
+  async crearPlatilloSinImagen(req: MulterRequest, res: Response<ApiResponse<PlatilloType>>): Promise<void> {
     try {
-        // Buscar el menú existente
-        const menu = await Menu.findByPk(id_Menu);
-        
-        if (!menu) {
-            return res.status(404).json({
-                message: 'Menú no encontrado'
-            });
-        }
+      console.log('=== CREAR MENÚ SIN IMAGEN ===');
+      console.log('Datos recibidos:', req.body);
 
-        let imageUrl: string | null = menu.imagen;
+      // Extraer y validar datos del formulario
+      const { titulo, ingredientes, preparacion }: PlatilloCreateRequest = req.body;
 
-        // Si hay un nuevo archivo, subir a Google Drive
-        if (file) {
-            console.log("📤 Subiendo nueva imagen...");
-            
-            // Eliminar imagen anterior de Google Drive si existe
-            if (menu.imagen) {
-                const oldFileId = googleDriveService.extractFileId(menu.imagen);
-                if (oldFileId) {
-                    try {
-                        await googleDriveService.deleteFile(oldFileId);
-                        console.log('🗑️ Imagen anterior eliminada de Google Drive');
-                    } catch (error) {
-                        console.warn('⚠️ Error al eliminar imagen anterior:', error);
-                    }
-                }
-            }
-
-            // Subir nueva imagen
-            imageUrl = await googleDriveService.uploadFile(
-                file.path,
-                `menu_${Date.now()}_${file.originalname}`,
-                file.mimetype
-            );
-
-            // Eliminar archivo temporal
-            fs.unlinkSync(file.path);
-        }
-
-        // Actualizar los campos
-        const updatedData: any = {};
-        if (titulo !== undefined) updatedData.titulo = titulo;
-        if (ingredientes !== undefined) updatedData.ingredientes = ingredientes;
-        if (preparacion !== undefined) updatedData.preparacion = preparacion.trim();
-        if (imageUrl !== menu.imagen) updatedData.imagen = imageUrl;
-
-        await menu.update(updatedData);
-
-        const responseData = {
-            action: "update",
-            id: menu.id_Menu,
-            titulo: menu.titulo,
-            ingredientes: menu.ingredientes,
-            preparacion: menu.preparacion,
-            imagen: menu.imagen
-        };
-
-        res.status(200).json({
-            message: 'Plato actualizado correctamente',
-            data: responseData
+      // Validar campos requeridos
+      if (!titulo || !ingredientes || !preparacion) {
+        res.status(400).json({
+          success: false,
+          message: 'Faltan campos requeridos: titulo, ingredientes, preparacion'
         });
+        return;
+      }
 
-        console.log("✅ Plato actualizado!");
-        console.log("======================");
+      // Crear platillo en base de datos sin imagen
+      const nuevoPlatillo = await Platillo.create({
+        titulo,
+        ingredientes,
+        preparacion,
+        imagen_url: null,
+        imagen_public_id: null
+      });
+
+      console.log('✓ Platillo sin imagen creado exitosamente en la base de datos');
+
+      // ← NUEVO: Enviar push notification
+      try {
+        console.log('📱 Enviando push notifications...');
+        await firebaseService.sendProductAddedNotification(nuevoPlatillo);
+        console.log('✓ Push notifications enviadas exitosamente');
+      } catch (notificationError) {
+        console.warn('⚠️ Error enviando push notifications (no crítico):', notificationError);
+      }
+
+      // Respuesta exitosa
+      res.status(201).json({
+        success: true,
+        message: 'Platillo creado exitosamente',
+        data: nuevoPlatillo
+      });
 
     } catch (error) {
-        console.error("❌ Error al actualizar:", error);
-        
-        // Limpiar archivo temporal si existe
-        if (file && fs.existsSync(file.path)) {
-            fs.unlinkSync(file.path);
-        }
-
-        res.status(500).json({
-            message: "Error al actualizar el platillo",
-            error: process.env.NODE_ENV === 'development' ? error?.message : undefined
+      console.error('❌ Error al crear platillo sin imagen:', error);
+      
+      if (error instanceof ValidationError) {
+        res.status(400).json({
+          success: false,
+          message: 'Error de validación',
+          error: error.errors.map(err => err.message).join(', ')
         });
+        return;
+      }
+      
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+        error: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
+      });
     }
-};
+  }
 
-// Eliminar menú
-export const deleteMenu = async (req: Request, res: Response): Promise<any> => {
-    const { id_Menu } = req.params;
-
-    console.log("=== ELIMINAR MENÚ ===");
-    console.log("ID:", id_Menu);
-
+  /**
+   * Actualizar un platillo
+   */
+  async actualizarPlatillo(req: MulterRequest, res: Response<ApiResponse<PlatilloType>>): Promise<void> {
     try {
-        // Buscar el menú
-        const menu = await Menu.findByPk(id_Menu);
-        
-        if (!menu) {
-            return res.status(404).json({
-                message: 'Menú no encontrado'
-            });
-        }
+      const { id } = req.params;
+      const { titulo, ingredientes, preparacion }: PlatilloUpdateRequest = req.body;
 
-        // Eliminar imagen de Google Drive si existe
-        if (menu.imagen) {
-            const fileId = googleDriveService.extractFileId(menu.imagen);
-            if (fileId) {
-                try {
-                    await googleDriveService.deleteFile(fileId);
-                    console.log('🗑️ Imagen eliminada de Google Drive');
-                } catch (error) {
-                    console.warn('⚠️ Error al eliminar imagen:', error);
-                }
-            }
-        }
+      // Buscar el platillo existente
+      const platilloExistente = await Platillo.findByPk(id);
 
-        // Eliminar el menú de la base de datos
-        await menu.destroy();
-
-        res.status(200).json({
-            message: 'Menú eliminado correctamente'
+      if (!platilloExistente) {
+        res.status(404).json({
+          success: false,
+          message: 'Platillo no encontrado'
         });
+        return;
+      }
 
-        console.log("✅ Menú eliminado!");
-        console.log("====================");
+      // Objeto para actualizar
+      const updateData: any = {
+        titulo: titulo || platilloExistente.titulo,
+        ingredientes: ingredientes || platilloExistente.ingredientes,
+        preparacion: preparacion || platilloExistente.preparacion
+      };
+
+      // Si se envió una nueva imagen, subirla y actualizar
+      if (req.file) {
+        console.log(`📤 Subiendo nueva imagen: ${req.file.originalname}`);
+        
+        const imageResult = await cloudinaryService.uploadImage(
+          req.file.buffer,
+          req.file.originalname,
+          {
+            folder: 'menu-restaurante',
+            tags: ['menu', 'platillo', (titulo || platilloExistente.titulo).toLowerCase().replace(/\s+/g, '-')]
+          }
+        );
+
+        // Eliminar imagen anterior de Cloudinary
+        if (platilloExistente.imagen_public_id) {
+          await cloudinaryService.deleteImage(platilloExistente.imagen_public_id);
+        }
+
+        updateData.imagen_url = imageResult.url;
+        updateData.imagen_public_id = imageResult.publicId;
+      }
+
+      // Actualizar usando Sequelize
+      const platilloActualizado = await platilloExistente.update(updateData);
+
+      console.log('✓ Platillo actualizado exitosamente');
+
+      // ← NUEVO: Enviar push notification de actualización
+      try {
+        console.log('📱 Enviando push notifications de actualización...');
+        await firebaseService.sendProductUpdatedNotification(platilloActualizado);
+        console.log('✓ Push notifications de actualización enviadas exitosamente');
+      } catch (notificationError) {
+        console.warn('⚠️ Error enviando push notifications (no crítico):', notificationError);
+      }
+
+      // Respuesta exitosa con el platillo actualizado
+      res.json({
+        success: true,
+        message: 'Platillo actualizado exitosamente',
+        data: platilloActualizado
+      });
 
     } catch (error) {
-        console.error('❌ Error al eliminar:', error);
-        res.status(500).json({
-            message: 'Error al eliminar el menú',
-            error: process.env.NODE_ENV === 'development' ? error?.message : undefined
+      console.error('❌ Error actualizando platillo:', error);
+      
+      if (error instanceof ValidationError) {
+        res.status(400).json({
+          success: false,
+          message: 'Error de validación',
+          error: error.errors.map(err => err.message).join(', ')
         });
+        return;
+      }
+      
+      res.status(500).json({
+        success: false,
+        message: 'Error actualizando platillo'
+      });
     }
-};
+  }
+
+  /**
+   * Actualizar platillo sin imagen (para app móvil)
+   */
+  async actualizarPlatilloSinImagen(req: MulterRequest, res: Response<ApiResponse<PlatilloType>>): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { titulo, ingredientes, preparacion }: PlatilloUpdateRequest = req.body;
+
+      // Buscar el platillo existente
+      const platilloExistente = await Platillo.findByPk(id);
+
+      if (!platilloExistente) {
+        res.status(404).json({
+          success: false,
+          message: 'Platillo no encontrado'
+        });
+        return;
+      }
+
+      // Actualizar campos
+      const updateData = {
+        titulo: titulo || platilloExistente.titulo,
+        ingredientes: ingredientes || platilloExistente.ingredientes,
+        preparacion: preparacion || platilloExistente.preparacion
+      };
+
+      const platilloActualizado = await platilloExistente.update(updateData);
+
+      console.log('✓ Platillo actualizado sin imagen exitosamente');
+
+      // ← NUEVO: Enviar push notification
+      try {
+        await firebaseService.sendProductUpdatedNotification(platilloActualizado);
+      } catch (notificationError) {
+        console.warn('⚠️ Error enviando push notifications:', notificationError);
+      }
+
+      res.json({
+        success: true,
+        message: 'Platillo actualizado exitosamente',
+        data: platilloActualizado
+      });
+
+    } catch (error) {
+      console.error('❌ Error actualizando platillo sin imagen:', error);
+      
+      if (error instanceof ValidationError) {
+        res.status(400).json({
+          success: false,
+          message: 'Error de validación',
+          error: error.errors.map(err => err.message).join(', ')
+        });
+        return;
+      }
+      
+      res.status(500).json({
+        success: false,
+        message: 'Error actualizando platillo'
+      });
+    }
+  }
+
+  // ← RESTO DE MÉTODOS MANTIENEN SU IMPLEMENTACIÓN ORIGINAL
+
+  /**
+   * Obtener todos los platillos
+   */
+  async obtenerPlatillos(req: MulterRequest, res: Response<ApiResponse<PlatilloType[]>>): Promise<void> {
+    try {
+      const platillos = await Platillo.findAll({
+        order: [['created_at', 'DESC']],
+        attributes: [
+          'id', 
+          'titulo', 
+          'ingredientes', 
+          'preparacion', 
+          'imagen_url', 
+          'imagen_public_id', 
+          'created_at',
+          'updated_at'
+        ]
+      });
+
+      res.json({
+        success: true,
+        message: 'Platillos obtenidos exitosamente',
+        data: platillos
+      });
+
+    } catch (error) {
+      console.error('❌ Error obteniendo platillos:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error obteniendo platillos'
+      });
+    }
+  }
+
+  /**
+   * Obtener un platillo por ID
+   */
+  async obtenerPlatilloPorId(req: MulterRequest, res: Response<ApiResponse<PlatilloType>>): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      const platillo = await Platillo.findByPk(id, {
+        attributes: [
+          'id', 
+          'titulo', 
+          'ingredientes', 
+          'preparacion', 
+          'imagen_url', 
+          'imagen_public_id', 
+          'created_at',
+          'updated_at'
+        ]
+      });
+
+      if (!platillo) {
+        res.status(404).json({
+          success: false,
+          message: 'Platillo no encontrado'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Platillo obtenido exitosamente',
+        data: platillo
+      });
+
+    } catch (error) {
+      console.error('❌ Error obteniendo platillo:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error obteniendo platillo'
+      });
+    }
+  }
+
+  /**
+   * Eliminar un platillo
+   */
+  async eliminarPlatillo(req: MulterRequest, res: Response<ApiResponse>): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      // Buscar el platillo
+      const platillo = await Platillo.findByPk(id);
+
+      if (!platillo) {
+        res.status(404).json({
+          success: false,
+          message: 'Platillo no encontrado'
+        });
+        return;
+      }
+
+      // Eliminar imagen de Cloudinary si existe
+      if (platillo.imagen_public_id) {
+        await cloudinaryService.deleteImage(platillo.imagen_public_id);
+      }
+
+      // Eliminar de la base de datos
+      await platillo.destroy();
+
+      console.log('✓ Platillo eliminado exitosamente');
+
+      res.json({
+        success: true,
+        message: 'Platillo eliminado exitosamente'
+      });
+
+    } catch (error) {
+      console.error('❌ Error eliminando platillo:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error eliminando platillo'
+      });
+    }
+  }
+
+  /**
+   * Buscar platillos por título
+   */
+  async buscarPlatillos(req: MulterRequest, res: Response<ApiResponse<PlatilloType[]>>): Promise<void> {
+    try {
+      const { q } = req.query;
+
+      if (!q || typeof q !== 'string') {
+        res.status(400).json({
+          success: false,
+          message: 'Parámetro de búsqueda requerido'
+        });
+        return;
+      }
+
+      const platillos = await Platillo.findAll({
+        where: {
+          titulo: {
+            [require('sequelize').Op.like]: `%${q}%`
+          }
+        },
+        order: [['created_at', 'DESC']],
+        attributes: [
+          'id', 
+          'titulo', 
+          'ingredientes', 
+          'preparacion', 
+          'imagen_url', 
+          'imagen_public_id', 
+          'created_at',
+          'updated_at'
+        ]
+      });
+
+      res.json({
+        success: true,
+        message: `Se encontraron ${platillos.length} platillos`,
+        data: platillos
+      });
+
+    } catch (error) {
+      console.error('❌ Error buscando platillos:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error buscando platillos'
+      });
+    }
+  }
+}
+
+// Exportar instancia del controlador
+export const menuController = new MenuController();

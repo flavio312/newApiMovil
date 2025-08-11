@@ -1,51 +1,35 @@
-import express from "express";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
-import { createMenu, deleteMenu, getMenu, getMenuById, updateMenu } from "../controllers/menu.controller";
+import { Router } from 'express';
+import { menuController } from '../controllers/menu.controller';
+import { upload } from '../services/cloudinary.service';
 
-const router = express.Router();
+const router = Router();
 
-// Crear directorio temporal si no existe
-const tempDir = path.join(__dirname, '../temp');
-if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-}
+// Ruta para buscar platillos (debe ir antes de /:id)
+router.get('/platillos/buscar', menuController.buscarPlatillos.bind(menuController));
 
-// Configuración de multer para manejo de archivos
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, tempDir);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const extension = path.extname(file.originalname);
-        cb(null, `menu-${uniqueSuffix}${extension}`);
-    }
-});
+// Ruta para crear un nuevo platillo (con imagen)
+router.post('/platillos', upload.single('imagen'), menuController.crearPlatillo.bind(menuController));
 
-const fileFilter = (req: any, file: Express.Multer.File, cb: any) => {
-    if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-    } else {
-        cb(new Error('Solo se permiten archivos de imagen'), false);
-    }
-};
+// ← NUEVA RUTA: Crear platillo sin imagen (para app móvil)
+router.post('/plato', menuController.crearPlatilloSinImagen.bind(menuController));
 
-const upload = multer({
-    storage: storage,
-    fileFilter: fileFilter,
-    limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB máximo
-    }
-});
+// Ruta para obtener todos los platillos
+router.get('/platillos', menuController.obtenerPlatillos.bind(menuController));
+// ← ALIAS: Para compatibilidad con app móvil
+router.get('/menu', menuController.obtenerPlatillos.bind(menuController));
 
-// Rutas
-router.get("/menu/:id_Menu", getMenuById);
-router.get("/menu", getMenu);
-router.post("/plato", upload.single('imagen'), createMenu);
-router.delete("/plato/:id_Menu", deleteMenu);
-router.put("/plato/:id_Menu", upload.single('imagen'), updateMenu);
+// Ruta para obtener un platillo por ID
+router.get('/platillos/:id', menuController.obtenerPlatilloPorId.bind(menuController));
+router.get('/plato/:id', menuController.obtenerPlatilloPorId.bind(menuController));
 
+// Ruta para actualizar un platillo (con imagen)
+router.put('/platillos/:id', upload.single('imagen'), menuController.actualizarPlatillo.bind(menuController));
+
+// ← NUEVA RUTA: Actualizar platillo sin imagen (para app móvil)
+router.put('/plato/:id', menuController.actualizarPlatilloSinImagen.bind(menuController));
+
+// Ruta para eliminar un platillo
+router.delete('/platillos/:id', menuController.eliminarPlatillo.bind(menuController));
+router.delete('/plato/:id', menuController.eliminarPlatillo.bind(menuController));
 
 export default router;
