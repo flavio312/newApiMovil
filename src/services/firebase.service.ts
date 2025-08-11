@@ -46,12 +46,6 @@ class FirebaseService {
 
       // Procesar la private key para manejar los \n correctamente
       const processedPrivateKey = privateKey.replace(/\\n/g, '\n');
-
-      console.log('🔧 Inicializando Firebase con variables individuales...');
-      console.log(`📋 Project ID: ${projectId}`);
-      console.log(`📧 Client Email: ${clientEmail}`);
-      console.log(`🔑 Private Key: ${processedPrivateKey.substring(0, 50)}...`);
-
       // Inicializar Firebase Admin SDK
       admin.initializeApp({
         credential: admin.credential.cert({
@@ -67,10 +61,6 @@ class FirebaseService {
       console.log(`🎯 Proyecto: ${projectId}`);
     } catch (error) {
       console.error('❌ Error inicializando Firebase Admin SDK:', error);
-      console.error('💡 Verifica que las variables de entorno estén configuradas correctamente:');
-      console.error('   - FIREBASE_PROJECT_ID');
-      console.error('   - FIREBASE_CLIENT_EMAIL'); 
-      console.error('   - FIREBASE_PRIVATE_KEY');
       throw new Error(`No se pudo inicializar Firebase Admin SDK: ${(error as Error).message}`);
     }
   }

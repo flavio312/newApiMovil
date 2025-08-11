@@ -10,9 +10,9 @@ export interface FirebaseConfig {
 export class FirebaseConfigValidator {
 
   static validateEnvironmentVariables(): FirebaseConfig {
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    const projectId = process.env.FIREBASE_PROJECT_ID || '';
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || '';
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY || '';
 
     const errors: string[] = [];
 
@@ -116,16 +116,6 @@ export class FirebaseConfigValidator {
     return processed;
   }
 
-  /**
-   * Mostrar información de configuración (sin datos sensibles)
-   */
-  static displayConfigInfo(config: FirebaseConfig): void {
-    console.log('📋 Configuración de Firebase:');
-    console.log(`  🎯 Project ID: ${config.projectId}`);
-    console.log(`  📧 Client Email: ${config.clientEmail}`);
-    console.log(`  🔑 Private Key: ${config.privateKey.substring(0, 50)}... (${config.privateKey.length} caracteres)`);
-  }
-
   static isProduction(): boolean {
     return process.env.NODE_ENV === 'production';
   }
@@ -141,8 +131,6 @@ export class FirebaseConfigValidator {
       } else {
         console.log('🛠️ Entorno de desarrollo detectado');
       }
-      
-      this.displayConfigInfo(config);
       
       return config;
     } catch (error) {
@@ -191,9 +179,5 @@ export class FirebaseDebugHelper {
     }
 
     const processed = FirebaseConfigValidator.processPrivateKey(privateKey);
-    console.log('🔍 Clave privada procesada:');
-    console.log('---START---');
-    console.log(processed);
-    console.log('---END---');
   }
 }
